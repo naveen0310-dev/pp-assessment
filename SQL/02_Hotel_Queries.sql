@@ -31,65 +31,41 @@ GROUP BY c.bill_id
 HAVING SUM(c.item_quantity * i.item_rate) > 1000;
 
 -- 4. Determine the most ordered and least ordered item of each month of year 2021
-WITH MonthlyItemCounts AS (
+SELECT billing_month, item_name, total_quantity,
+       CASE 
+           WHEN r_desc = 1 THEN 'Most Ordered'
+           WHEN r_asc = 1 THEN 'Least Ordered'
+       END AS status
+FROM (
     SELECT 
-        EXTRACT(MONTH FROM c.bill_date) as billing_month,
-        c.item_id,
+        EXTRACT(MONTH FROM c.bill_date) AS billing_month,
         i.item_name,
-        SUM(c.item_quantity) as total_quantity
+        SUM(c.item_quantity) AS total_quantity,
+        RANK() OVER(PARTITION BY EXTRACT(MONTH FROM c.bill_date) 
+                    ORDER BY SUM(c.item_quantity) DESC) AS r_desc,
+        RANK() OVER(PARTITION BY EXTRACT(MONTH FROM c.bill_date) 
+                    ORDER BY SUM(c.item_quantity) ASC) AS r_asc
     FROM booking_commercials c
     JOIN items i ON c.item_id = i.item_id
     WHERE EXTRACT(YEAR FROM c.bill_date) = 2021
-    GROUP BY EXTRACT(MONTH FROM c.bill_date), c.item_id, i.item_name
-),
-RankedItems AS (
-    SELECT 
-        billing_month,
-        item_id,
-        item_name,
-        total_quantity,
-        RANK() OVER(PARTITION BY billing_month ORDER BY total_quantity DESC) as highest_rank,
-        RANK() OVER(PARTITION BY billing_month ORDER BY total_quantity ASC) as lowest_rank
-    FROM MonthlyItemCounts
-)
-SELECT 
-    billing_month, 
-    item_id, 
-    item_name, 
-    total_quantity,
-    CASE 
-        WHEN highest_rank = 1 THEN 'Most Ordered'
-        WHEN lowest_rank = 1 THEN 'Least Ordered'
-    END as status
-FROM RankedItems
-WHERE highest_rank = 1 OR lowest_rank = 1;
+    GROUP BY billing_month, i.item_name
+) t
+WHERE r_desc = 1 OR r_asc = 1;
 
 -- 5. Find the customers with the second highest bill value of each month of year 2021
-WITH MonthlyBills AS (
+SELECT billing_month, user_id, bill_id, bill_amount
+FROM (
     SELECT 
-        EXTRACT(MONTH FROM c.bill_date) as billing_month,
+        EXTRACT(MONTH FROM c.bill_date) AS billing_month,
         b.user_id,
         c.bill_id,
-        SUM(c.item_quantity * i.item_rate) as bill_amount
+        SUM(c.item_quantity * i.item_rate) AS bill_amount,
+        DENSE_RANK() OVER(PARTITION BY EXTRACT(MONTH FROM c.bill_date) 
+                          ORDER BY SUM(c.item_quantity * i.item_rate) DESC) AS rnk
     FROM booking_commercials c
     JOIN bookings b ON c.booking_id = b.booking_id
     JOIN items i ON c.item_id = i.item_id
     WHERE EXTRACT(YEAR FROM c.bill_date) = 2021
-    GROUP BY EXTRACT(MONTH FROM c.bill_date), b.user_id, c.bill_id
-),
-RankedBills AS (
-    SELECT 
-        billing_month,
-        user_id,
-        bill_id,
-        bill_amount,
-        DENSE_RANK() OVER(PARTITION BY billing_month ORDER BY bill_amount DESC) as rnk
-    FROM MonthlyBills
-)
-SELECT 
-    billing_month,
-    user_id,
-    bill_id,
-    bill_amount
-FROM RankedBills
+    GROUP BY billing_month, b.user_id, c.bill_id
+) t
 WHERE rnk = 2;
